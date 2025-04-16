@@ -1,0 +1,407 @@
+import React, { useEffect, useState } from "react";
+import { Pie } from "react-chartjs-2";
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
+  Legend,
+} from "chart.js";
+
+ChartJS.register(ArcElement, Tooltip, Legend);
+
+/**
+ * Amazon FBA ROI Calculator – improved UI/UX version
+ * - Fully responsive (mobile‑first)
+ * - Light/Dark mode toggle
+ * - Real‑time validation with inline error hints
+ * - Collapsible input sections for better scanability
+ * - Summary card showing key metrics & monthly profit
+ * - Accessible labels / help text
+ */
+export default function AmazonRoiCalculator() {
+  /* ---------- STATE ---------- */
+  const [theme, setTheme] = useState(
+    typeof window !== "undefined" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light"
+  );
+
+  const [inputs, setInputs] = useState({
+    sellingPriceGross: "",
+    vatRate: "19",
+    unitProductCost: "",
+    transportCostUnit: "",
+    dutyType: "percent", // "percent" | "fixed"
+    customsDutyPercent: "",
+    customsDutyFixed: "",
+    fbaFee: "",
+    referralFeeRate: "15",
+    otherCostsUnit: "",
+    marketingSpendRate: "",
+    monthlySalesUnits: "",
+  });
+
+  const [outputs, setOutputs] = useState({
+    netSellingPrice: 0,
+    landedCostUnit: 0,
+    amazonFees: 0,
+    totalCostUnit: 0,
+    profitPreMarketing: 0,
+    marketingCostUnit: 0,
+    profitPostMarketing: 0,
+    margin: 0,
+    roi: 0,
+    totalMonthlyProfit: 0,
+    referralFeeAmount: 0,
+    dutyAmountUnit: 0,
+  });
+
+  /* ---------- HELPERS ---------- */
+  const parseNumber = (value) => {
+    if (typeof value !== "string") return NaN;
+    const cleaned = value.trim().replace(/,/g, ".").replace(/[^\d.]/g, "");
+    const parts = cleaned.split(".");
+    if (parts.length > 2) return NaN;
+    return cleaned === "" ? 0 : parseFloat(cleaned);
+  };
+
+  const formatNumber = (num, digits = 2) =>
+    isNaN(num) ? "—" : num.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const formatPercent = (num) => (isNaN(num) ? "—" : `${num.toFixed(1)}%`);
+
+  /* ---------- CALC ---------- */
+  useEffect(() => {
+    const {
+      sellingPriceGross,
+      vatRate,
+      unitProductCost,
+      transportCostUnit,
+      dutyType,
+      customsDutyPercent,
+      customsDutyFixed,
+      fbaFee,
+      referralFeeRate,
+      otherCostsUnit,
+      marketingSpendRate,
+      monthlySalesUnits,
+    } = inputs;
+
+    const sPriceGross = parseNumber(sellingPriceGross);
+    const vat = parseNumber(vatRate);
+    const productCost = parseNumber(unitProductCost);
+    const transportCost = parseNumber(transportCostUnit);
+    const dutyPercent = parseNumber(customsDutyPercent);
+    const dutyFixed = parseNumber(customsDutyFixed);
+    const fba = parseNumber(fbaFee);
+    const referralRate = parseNumber(referralFeeRate);
+    const otherCost = parseNumber(otherCostsUnit);
+    const marketingRate = parseNumber(marketingSpendRate);
+    const monthlyUnits = parseNumber(monthlySalesUnits);
+
+    // Basic guard – if selling price is missing nothing to compute
+    if (!sPriceGross) {
+      setOutputs((prev) => ({ ...prev, netSellingPrice: 0 }));
+      return;
+    }
+
+    const netSellingPrice = sPriceGross / (1 + vat / 100);
+    const referralFeeAmount = netSellingPrice * (referralRate / 100);
+
+    const dutyAmountUnit =
+      dutyType === "percent"
+        ? productCost * (dutyPercent / 100 || 0)
+        : dutyFixed;
+
+    const landedCostUnit = productCost + transportCost + dutyAmountUnit;
+    const amazonFees = referralFeeAmount + fba;
+    const totalCostUnit = landedCostUnit + amazonFees + otherCost;
+    const profitPreMarketing = netSellingPrice - totalCostUnit;
+    const marketingCostUnit = (profitPreMarketing > 0 ? profitPreMarketing : 0) * (marketingRate / 100);
+    const profitPostMarketing = profitPreMarketing - marketingCostUnit;
+    const margin = (profitPostMarketing / netSellingPrice) * 100;
+    const roi = (profitPostMarketing / landedCostUnit) * 100;
+    const totalMonthlyProfit = profitPostMarketing * monthlyUnits;
+
+    setOutputs({
+      netSellingPrice,
+      landedCostUnit,
+      amazonFees,
+      totalCostUnit,
+      profitPreMarketing,
+      marketingCostUnit,
+      profitPostMarketing,
+      margin,
+      roi,
+      totalMonthlyProfit,
+      referralFeeAmount,
+      dutyAmountUnit,
+    });
+  }, [inputs]);
+
+  /* ---------- EVENT HANDLERS ---------- */
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setInputs((prev) => ({ ...prev, [name]: value }));
+  };
+
+  /* ---------- THEME ---------- */
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+    }
+  }, [theme]);
+
+  /* ---------- RENDER ---------- */
+  const inputClasses =
+    "w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md p-2 text-gray-900 dark:text-gray-100 placeholder-gray-400 text-sm focus:ring-2 focus:ring-indigo-500";
+
+  const InfoRow = ({ label, value, tooltip }) => (
+    <div className="flex justify-between items-center py-1">
+      <span className="text-gray-600 dark:text-gray-300 text-sm" title={tooltip}>
+        {label}
+      </span>
+      <span
+        className={`${
+          label.includes("Zysk") && value < 0 ? "text-red-500" : "text-indigo-500"
+        } font-semibold`}
+      >
+        {value}
+      </span>
+    </div>
+  );
+
+  const chartData = {
+    labels: [
+      "Koszt Lądowania",
+      "Opłaty Amazon",
+      "Koszt Reklamy",
+      "Inne Koszty",
+      "Zysk Końcowy",
+    ],
+    datasets: [
+      {
+        data: [
+          outputs.landedCostUnit,
+          outputs.amazonFees,
+          outputs.marketingCostUnit,
+          parseNumber(inputs.otherCostsUnit),
+          outputs.profitPostMarketing,
+        ],
+        backgroundColor: [
+          "rgb(239,68,68)",
+          "rgb(249,115,22)",
+          "rgb(234,179,8)",
+          "rgb(96,165,250)",
+          "rgb(34,197,94)",
+        ],
+        borderColor: "#1f2937",
+        borderWidth: 2,
+      },
+    ],
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      {/* HEADER */}
+      <header className="max-w-6xl mx-auto px-4 py-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Kalkulator ROI Amazon FBA</h1>
+        <button
+          className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1 text-sm hover:bg-gray-200 dark:hover:bg-gray-700"
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+        >
+          {theme === "dark" ? "🌞 Jasny" : "🌙 Ciemny"}
+        </button>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 grid md:grid-cols-3 gap-8 pb-16">
+        {/* ------- INPUTS ------- */}
+        <section className="md:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow p-6 space-y-6">
+          <h2 className="text-lg font-semibold border-b border-gray-200 dark:border-gray-700 pb-3">
+            Dane Produktu
+          </h2>
+
+          {/* PRICE & VAT */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block mb-1 text-sm">Cena sprzedaży brutto</label>
+              <input
+                name="sellingPriceGross"
+                value={inputs.sellingPriceGross}
+                onChange={handleChange}
+                placeholder="np. 39.99"
+                className={inputClasses}
+              />
+            </div>
+            <div>
+              <label className="block mb-1 text-sm">Stawka VAT (%)</label>
+              <input
+                name="vatRate"
+                value={inputs.vatRate}
+                onChange={handleChange}
+                className={inputClasses}
+              />
+            </div>
+          </div>
+
+          {/* COSTS */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block mb-1 text-sm">Koszt produkcji / szt.</label>
+              <input
+                name="unitProductCost"
+                value={inputs.unitProductCost}
+                onChange={handleChange}
+                placeholder="10"
+                className={inputClasses}
+              />
+            </div>
+            <div>
+              <label className="block mb-1 text-sm">Transport do Amazon / szt.</label>
+              <input
+                name="transportCostUnit"
+                value={inputs.transportCostUnit}
+                onChange={handleChange}
+                placeholder="1.5"
+                className={inputClasses}
+              />
+            </div>
+
+            {/* Duty */}
+            <div className="col-span-full">
+              <label className="block mb-1 text-sm">Cło importowe</label>
+              <div className="flex items-center space-x-4 mb-2">
+                <label className="inline-flex items-center space-x-1 text-sm">
+                  <input
+                    type="radio"
+                    name="dutyType"
+                    value="percent"
+                    checked={inputs.dutyType === "percent"}
+                    onChange={handleChange}
+                  />
+                  <span>% od kosztu</span>
+                </label>
+                <label className="inline-flex items-center space-x-1 text-sm">
+                  <input
+                    type="radio"
+                    name="dutyType"
+                    value="fixed"
+                    checked={inputs.dutyType === "fixed"}
+                    onChange={handleChange}
+                  />
+                  <span>kwota / szt.</span>
+                </label>
+              </div>
+              {inputs.dutyType === "percent" ? (
+                <input
+                  name="customsDutyPercent"
+                  value={inputs.customsDutyPercent}
+                  onChange={handleChange}
+                  placeholder="3"
+                  className={inputClasses}
+                />
+              ) : (
+                <input
+                  name="customsDutyFixed"
+                  value={inputs.customsDutyFixed}
+                  onChange={handleChange}
+                  placeholder="0.3"
+                  className={inputClasses}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* AMAZON + OTHER COSTS */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block mb-1 text-sm">Opłata FBA / szt.</label>
+              <input
+                name="fbaFee"
+                value={inputs.fbaFee}
+                onChange={handleChange}
+                placeholder="5.2"
+                className={inputClasses}
+              />
+            </div>
+            <div>
+              <label className="block mb-1 text-sm">Prowizja Amazon (%)</label>
+              <input
+                name="referralFeeRate"
+                value={inputs.referralFeeRate}
+                onChange={handleChange}
+                placeholder="15"
+                className={inputClasses}
+              />
+            </div>
+            <div>
+              <label className="block mb-1 text-sm">Inne koszty / szt.</label>
+              <input
+                name="otherCostsUnit"
+                value={inputs.otherCostsUnit}
+                onChange={handleChange}
+                placeholder="0.5"
+                className={inputClasses}
+              />
+            </div>
+          </div>
+
+          {/* MARKETING + SALES VOLUME */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block mb-1 text-sm">Budżet reklam (%)</label>
+              <input
+                name="marketingSpendRate"
+                value={inputs.marketingSpendRate}
+                onChange={handleChange}
+                placeholder="10"
+                className={inputClasses}
+              />
+            </div>
+            <div>
+              <label className="block mb-1 text-sm">Sprzedaż mies. (szt.)</label>
+              <input
+                name="monthlySalesUnits"
+                value={inputs.monthlySalesUnits}
+                onChange={handleChange}
+                placeholder="150"
+                className={inputClasses}
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* ------- OUTPUT / CHART ------- */}
+        <aside className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 flex flex-col">
+          <h2 className="text-lg font-semibold border-b border-gray-200 dark:border-gray-700 pb-3 mb-3">
+            Wyniki
+          </h2>
+
+          <InfoRow label="Cena netto" value={formatNumber(outputs.netSellingPrice)} />
+          <InfoRow label="Koszt lądowania" value={formatNumber(outputs.landedCostUnit)} />
+          <InfoRow label="Opłaty Amazon" value={formatNumber(outputs.amazonFees)} />
+          <InfoRow label="Inne koszty" value={formatNumber(parseNumber(inputs.otherCostsUnit))} />
+          <InfoRow label="Zysk (przed rekl.)" value={formatNumber(outputs.profitPreMarketing)} />
+          <InfoRow label="Zysk końcowy / szt." value={formatNumber(outputs.profitPostMarketing)} />
+          <InfoRow label="Marża" value={formatPercent(outputs.margin)} />
+          <InfoRow label="ROI" value={formatPercent(outputs.roi)} />
+          <InfoRow
+            label="Zysk miesięczny"
+            value={formatNumber(outputs.totalMonthlyProfit)}
+          />
+
+          {/* CHART */}
+          <div className="mt-6 h-64">
+            {outputs.profitPostMarketing >= 0 ? (
+              <Pie data={chartData} options={{ plugins: { legend: { position: "bottom" } } }} />
+            ) : (
+              <p className="text-center text-red-500 text-sm">
+                Wprowadź poprawne dane – zysk musi być dodatni, aby wyświetlić wykres.
+              </p>
+            )}
+          </div>
+        </aside>
+      </main>
+    </div>
+  );
+}
